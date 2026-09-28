@@ -34,14 +34,20 @@ public sealed record LtSittingSchedulePdfDto(
 /// <param name="headerText">Centre text of the page header.</param>
 /// <param name="footerText">Left text of the page footer (e.g. the portal page address).</param>
 /// <param name="generatedAt">Timestamp shown top-left of the header. Defaults to now (server local time).</param>
+/// <param name="fitOnePage">When true (default) the content is scaled down, if needed, so the whole agenda fits on a single page.
+/// Ignored for very long agendas (more than 30 items) where scaling would make the text unreadable.</param>
 public sealed class LtSittingSchedulePdfDocument(
     LtSittingSchedulePdfDto sitting,
     string title = "Preview Agenda (Draft)",
     string headerText = "Secretariat Management",
     string footerText = "localhost:4200/mpm-lt/secretariat-management",
-    DateTime? generatedAt = null) : IDocument
+    DateTime? generatedAt = null,
+    bool fitOnePage = true) : IDocument
 {
+    private const int MaxItemsForSinglePage = 30;
+
     private readonly DateTime _generatedOn = generatedAt ?? DateTime.Now;
+    private readonly bool _scaleToOnePage = fitOnePage && sitting.AgendaItems.Count <= MaxItemsForSinglePage;
 
     // ---- Palette (taken from the portal's Preview Agenda screen) ----
     private static readonly string InkColor = "#111827";
@@ -80,11 +86,11 @@ public sealed class LtSittingSchedulePdfDocument(
         {
             page.Size(PageSizes.A4);
             page.MarginHorizontal(30);
-            page.MarginVertical(28);
+            page.MarginVertical(24);
             page.DefaultTextStyle(x => x.FontSize(10).FontColor(InkColor));
 
             // ---- Header: date/time (left) | header text (centre) ----
-            page.Header().PaddingBottom(10).Row(row =>
+            page.Header().PaddingBottom(6).Row(row =>
             {
                 row.RelativeItem().AlignLeft()
                     .Text(_generatedOn.ToString("M/d/yy, h:mm tt", CultureInfo.InvariantCulture)).FontSize(9);
@@ -92,9 +98,10 @@ public sealed class LtSittingSchedulePdfDocument(
                 row.RelativeItem(); // keeps the centre text truly centred
             });
 
-            page.Content().Column(column =>
+            // ScaleToFit shrinks the content just enough to fit the page (never enlarges it).
+            (_scaleToOnePage ? page.Content().ScaleToFit() : page.Content()).Column(column =>
             {
-                column.Spacing(22);
+                column.Spacing(16);
 
                 // ---- Title + meta bar ----
                 column.Item().Column(header =>
@@ -183,7 +190,11 @@ public sealed class LtSittingSchedulePdfDocument(
         string titleColumnHeader = isPaperLike ? "Paper Title" : "Agenda Item";
         int totalMinutes = items.Sum(x => x.DurationMinutes);
 
-        container.Column(column =>
+        // Keep a whole section on one page when it reasonably fits; only very long
+        // sections are allowed to continue on the next page (header row repeats).
+        IContainer section = items.Count <= 10 ? container.ShowEntire() : container;
+
+        section.Column(column =>
         {
             // Section header row
             column.Item().EnsureSpace(90).Row(row =>
@@ -240,7 +251,7 @@ public sealed class LtSittingSchedulePdfDocument(
     private static IContainer BodyCell(TableDescriptor table) =>
         table.Cell()
             .BorderBottom(0.75f).BorderColor(RowLineColor)
-            .PaddingVertical(9).PaddingHorizontal(6)
+            .PaddingVertical(7).PaddingHorizontal(6)
             .AlignMiddle();
 
     private static void AddHeaderCell(TableCellDescriptor header, string text, bool centered)
