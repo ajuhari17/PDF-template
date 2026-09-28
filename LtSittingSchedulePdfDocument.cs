@@ -1,3 +1,4 @@
+using System.Globalization;
 using DIC.MPMLT.Application.Features.Secretariats.Agendas;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -30,10 +31,18 @@ public sealed record LtSittingSchedulePdfDto(
 /// </summary>
 /// <param name="sitting">Data to render.</param>
 /// <param name="title">Page title. Defaults to the draft preview; pass e.g. "Agenda" for the published version.</param>
+/// <param name="headerText">Centre text of the page header.</param>
+/// <param name="footerText">Left text of the page footer (e.g. the portal page address).</param>
+/// <param name="generatedAt">Timestamp shown top-left of the header. Defaults to now (server local time).</param>
 public sealed class LtSittingSchedulePdfDocument(
     LtSittingSchedulePdfDto sitting,
-    string title = "Preview Agenda (Draft)") : IDocument
+    string title = "Preview Agenda (Draft)",
+    string headerText = "Secretariat Management",
+    string footerText = "localhost:4200/mpm-lt/secretariat-management",
+    DateTime? generatedAt = null) : IDocument
 {
+    private readonly DateTime _generatedOn = generatedAt ?? DateTime.Now;
+
     // ---- Palette (taken from the portal's Preview Agenda screen) ----
     private static readonly string InkColor = "#111827";
     private static readonly string TitleColor = "#1F2937";
@@ -73,6 +82,15 @@ public sealed class LtSittingSchedulePdfDocument(
             page.MarginHorizontal(30);
             page.MarginVertical(28);
             page.DefaultTextStyle(x => x.FontSize(10).FontColor(InkColor));
+
+            // ---- Header: date/time (left) | header text (centre) ----
+            page.Header().PaddingBottom(10).Row(row =>
+            {
+                row.RelativeItem().AlignLeft()
+                    .Text(_generatedOn.ToString("M/d/yy, h:mm tt", CultureInfo.InvariantCulture)).FontSize(9);
+                row.RelativeItem().AlignCenter().Text(headerText).FontSize(9);
+                row.RelativeItem(); // keeps the centre text truly centred
+            });
 
             page.Content().Column(column =>
             {
@@ -114,13 +132,17 @@ public sealed class LtSittingSchedulePdfDocument(
                 }
             });
 
-            page.Footer().AlignRight().Text(text =>
+            // ---- Footer: address (left) | page/total (right) ----
+            page.Footer().PaddingTop(8).Row(row =>
             {
-                text.DefaultTextStyle(x => x.FontSize(8).FontColor(MutedColor));
-                text.Span("Page ");
-                text.CurrentPageNumber();
-                text.Span(" of ");
-                text.TotalPages();
+                row.RelativeItem().AlignLeft().Text(footerText).FontSize(9);
+                row.AutoItem().Text(text =>
+                {
+                    text.DefaultTextStyle(x => x.FontSize(9));
+                    text.CurrentPageNumber();
+                    text.Span("/");
+                    text.TotalPages();
+                });
             });
         });
     }
