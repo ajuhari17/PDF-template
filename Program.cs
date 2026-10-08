@@ -41,7 +41,7 @@ var fullSitting = new LtSittingSchedulePdfDto(
         new(1, "AOB", "Enterprise review", null, 5, T(15, 40), T(15, 45)),
  
         // Matter Arising (the 15-minute slot is hardcoded in the document) + trailing break
-        new(1, "Matter Arising", "Matter Arising", null, 15, T(15, 45), T(16, 0)),
+  
         new(2, "Break", "Evening Tea", null, 70, T(16, 0), T(17, 10)),
     });
  
