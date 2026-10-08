@@ -42,25 +42,27 @@ public sealed record LtSittingSchedulePdfDto(
 /// <param name="generatedAt">Timestamp shown top-left of the header. Defaults to now (server local time).</param>
 /// <param name="fitOnePage">When true (default) the content is scaled down, if needed, so the whole agenda fits on a single page.
 /// Ignored for very long agendas (more than 30 items) where scaling would make the text unreadable.</param>
-/// <param name="showMatterArising">false (default): the Matter Arising section is left out completely - its slot, and any break
-/// printed inside it, are removed and not counted in the totals. true: the section is always printed, with a fixed 15-minute slot.</param>
+/// <remarks>
+/// The Matter Arising section is data driven: it is printed only when at least one item has
+/// SectionType = "Matter Arising" (e.g. a break placed in that section). Otherwise the section - including
+/// the Matter Arising item itself - is left out and not counted in the totals.
+/// </remarks>
 public sealed class LtSittingSchedulePdfDocument(
     LtSittingSchedulePdfDto sitting,
     string title = "Preview Agenda (Draft)",
     string headerText = "Secretariat Management",
     string footerText = "localhost:4200/mpm-lt/secretariat-management",
     DateTime? generatedAt = null,
-    bool fitOnePage = true,
-    bool showMatterArising = false) : IDocument
+    bool fitOnePage = true) : IDocument
 {
     private const int MaxItemsForSinglePage = 30;
 
-    // When the Matter Arising section is shown (showMatterArising: true) its slot is always 15 minutes long.
+    // When the Matter Arising section is shown, its slot is always 15 minutes long.
     private const string MatterArisingType = "Matter Arising";
     private const int MatterArisingMinutes = 15;
 
-    /// <summary>Agenda items as printed (Matter Arising included or removed depending on showMatterArising).</summary>
-    private readonly IReadOnlyList<LtSittingScheduleAgendaItemDto> _items = BuildItems(sitting, showMatterArising);
+    /// <summary>Agenda items as printed (Matter Arising included only when some item has SectionType "Matter Arising").</summary>
+    private readonly IReadOnlyList<LtSittingScheduleAgendaItemDto> _items = BuildItems(sitting);
 
     private readonly DateTime _generatedOn = generatedAt ?? DateTime.Now;
 
@@ -179,19 +181,22 @@ public sealed class LtSittingSchedulePdfDocument(
 
     // ------------------------------------------------------------------
     // Builds the printed item list.
-    //  - showMatterArising = false: everything that belongs to the Matter Arising section is removed
-    //    (the slot itself and any break whose SectionType is "Matter Arising").
-    //  - showMatterArising = true: the Matter Arising slot is hardcoded to 15 minutes:
+    //  - No item has SectionType "Matter Arising": the Matter Arising section is not printed, so the
+    //    Matter Arising item is dropped.
+    //  - Some item has SectionType "Matter Arising": the section is printed and its slot is hardcoded
+    //    to 15 minutes:
     //  - any Matter Arising item from the DTO is replaced by a single 15-minute slot
     //    (keeping its title / start time when it has them);
     //  - if there is none, one is added right after the last other item.
     // ------------------------------------------------------------------
-    private static List<LtSittingScheduleAgendaItemDto> BuildItems(LtSittingSchedulePdfDto source, bool showMatterArising)
+    private static List<LtSittingScheduleAgendaItemDto> BuildItems(LtSittingSchedulePdfDto source)
     {
-        if (!showMatterArising)
+        bool hasMatterArisingSection = source.AgendaItems.Any(x => x.SectionType == MatterArisingType);
+
+        if (!hasMatterArisingSection)
         {
             return source.AgendaItems
-                .Where(x => x.ItemType != MatterArisingType && x.SectionType != MatterArisingType)
+                .Where(x => x.ItemType != MatterArisingType)
                 .ToList();
         }
 
