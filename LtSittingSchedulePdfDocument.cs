@@ -6,9 +6,14 @@ using QuestPDF.Infrastructure;
 
 namespace DIC.MPMLT.Application.Features.Secretariats.LtSittings.Queries;
 
+/// <summary>
+/// One row of the agenda. <paramref name="SectionType"/> is only filled for breaks: it names the section the
+/// break is printed in ("Agenda Item", "Scheduled Paper", "Matter Arising" ...). It is null for normal items.
+/// </summary>
 public sealed record LtSittingScheduleAgendaItemDto(
     int SequenceNo,
     string ItemType,
+    string? SectionType,
     string ItemTitle,
     string? PaperCategory,
     int DurationMinutes,
@@ -199,6 +204,7 @@ public sealed class LtSittingSchedulePdfDocument(
         LtSittingScheduleAgendaItemDto slot = new(
             SequenceNo: existing?.SequenceNo ?? 1,
             ItemType: MatterArisingType,
+            SectionType: null,
             ItemTitle: existing?.ItemTitle ?? MatterArisingType,
             PaperCategory: null,
             DurationMinutes: MatterArisingMinutes,
@@ -218,8 +224,9 @@ public sealed class LtSittingSchedulePdfDocument(
     // ------------------------------------------------------------------
     // Groups the items into numbered sections, in AgendaItemTimeline.ItemTypeOrder.
     // Items are ordered by start time so breaks land where they happen in the day.
-    // A break that has no section type of its own joins the section of the item before it
-    // (or the item after it, when it is the very first thing in the day).
+    // A break is printed in its SectionType (e.g. "Scheduled Paper"). Only when that is missing
+    // does it join the section of the item before it (or the item after it, when it is the
+    // very first thing in the day).
     // ------------------------------------------------------------------
     private List<(string Type, List<LtSittingScheduleAgendaItemDto> Items)> BuildSections()
     {
@@ -228,15 +235,27 @@ public sealed class LtSittingSchedulePdfDocument(
             .ThenBy(x => x.SequenceNo)
             .ToList();
 
+        static bool IsKnownSection(string? type) =>
+            !string.IsNullOrWhiteSpace(type) && AgendaItemTimeline.ItemTypeOrder.Contains(type);
+
         string?[] sectionOf = new string?[ordered.Count];
         for (int i = 0; i < ordered.Count; i++)
         {
             LtSittingScheduleAgendaItemDto x = ordered[i];
-            bool ownSection = x.ItemType != BreakType && AgendaItemTimeline.ItemTypeOrder.Contains(x.ItemType);
-            if (!IsBreakItem(x) || ownSection)
+
+            if (!IsBreakItem(x))
             {
-                sectionOf[i] = x.ItemType;
+                sectionOf[i] = x.ItemType;          // normal item: its own type
             }
+            else if (IsKnownSection(x.SectionType))
+            {
+                sectionOf[i] = x.SectionType;       // break: the section it was placed in
+            }
+            else if (x.ItemType != BreakType && IsKnownSection(x.ItemType))
+            {
+                sectionOf[i] = x.ItemType;          // flagged break that still carries a real item type
+            }
+            // otherwise resolved from the neighbouring items below
         }
 
         for (int i = 0; i < ordered.Count; i++)
